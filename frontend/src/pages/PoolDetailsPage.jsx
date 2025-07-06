@@ -9,7 +9,7 @@ import { useNFTMilestones } from '../hooks/useNFTMilestones'
 import { SimpleNFTGallery } from '../components/NFTGallery'
 import { getCombinedTreasuryBalance, getUserMaxWithdrawable } from '../services/treasuryService'
 import { PriceBadge } from '../components/ui/badge'
-import priceService from '../services/priceService'
+import priceService from '../services/robustPriceService'
 
 /**
  * PoolDetailsPage component - Detailed view of an individual ImpactPool

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import priceService from '../../services/priceService'
+import priceService from '../../services/robustPriceService'
 
 // Simple utility function to combine CSS classes
 const cn = (...classes) => {
