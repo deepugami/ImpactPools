@@ -4,7 +4,7 @@ console.log('🌟 Stellar Service v2.1 - Initializing...')
 // Import Stellar SDK
 import * as StellarSDK from '@stellar/stellar-sdk'
 import { blendService } from './blendService'
-import priceService from './priceService'
+import priceService from './robustPriceService'
 // import { realBlendService } from './realBlendService'
 
 // Stellar SDK and utilities
