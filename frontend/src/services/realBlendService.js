@@ -4,6 +4,8 @@
  * This service uses the official @blend-capital/blend-sdk to interact with
  * live Blend protocol contracts on Stellar testnet. Unlike the simulated
  * blendService.js, this makes actual on-chain calls to get real data.
+ * 
+ * Testnet UI: https://testnet.blend.capital
  */
 
 import { 
@@ -17,6 +19,7 @@ import {
 import { SorobanRpc, Keypair, Account, Networks } from '@stellar/stellar-sdk';
 
 // Official Blend Protocol Testnet Contract Addresses
+// These are the real contracts used by https://testnet.blend.capital
 const BLEND_CONTRACTS = {
   // Real Blend Testnet Pool Factory
   pool_factory: "CDIE73IJJKOWXWCPU5GWQ745FUKWCSH3YKZRF5IQW7GE3G7YAZ773MYK",
@@ -29,19 +32,230 @@ const BLEND_CONTRACTS = {
   // Real Blend Backstop
   backstop: "CC4TSDVQKBAYMK4BEDM65CSNB3ISI2A54OOBRO6IPSTFHJY3DEEKHRKV",
   
-  // Real Test Pool 
+  // Real Test Pool - from https://testnet.blend.capital
   test_pool: "CCLBPEYS3XFK65MYYXSBMOGKUI4ODN5S7SUZBGD7NALUQF64QILLX5B5"
 };
 
+// Connect to Blend testnet
 const RPC_URL = 'https://soroban-testnet.stellar.org:443';
+const BLEND_TESTNET_URL = 'https://testnet.blend.capital';
 
 export class RealBlendService {
   constructor() {
-    this.contractAddresses = BLEND_CONTRACTS;
     this.rpcUrl = RPC_URL;
-    this.pools = new Map();
-    this.poolEstimates = new Map();
-    console.log('Real Blend Service initialized with testnet contracts');
+    this.rpcServer = new SorobanRpc.Server(this.rpcUrl);
+    this.network = Networks.TESTNET;
+    this.blendTestnetUrl = BLEND_TESTNET_URL;
+    
+    console.log('🌐 Real Blend Service initialized');
+    console.log(`   RPC: ${this.rpcUrl}`);
+    console.log(`   Testnet UI: ${this.blendTestnetUrl}`);
+    console.log(`   Contracts loaded: ${Object.keys(BLEND_CONTRACTS).length}`);
+  }
+
+  /**
+   * Get user's position in a specific Blend pool
+   * This fetches real on-chain data from Blend protocol
+   */
+  async getUserPosition(userAddress, poolAddress = BLEND_CONTRACTS.test_pool) {
+    try {
+      console.log(`🔍 Fetching Blend user position: ${userAddress.slice(0, 8)}... in pool ${poolAddress.slice(0, 8)}...`);
+      
+      const pool = new Pool(poolAddress, this.rpcUrl);
+      
+      // Get user's position from Blend pool
+      const userPositions = await pool.loadUserPositions(userAddress);
+      
+      if (!userPositions || userPositions.size === 0) {
+        console.log(`ℹ️ No Blend positions found for user ${userAddress.slice(0, 8)}...`);
+        return {
+          hasPosition: false,
+          totalSupplied: 0,
+          totalBorrowed: 0,
+          netPosition: 0,
+          assets: {},
+          healthFactor: null,
+          isBlendData: true
+        };
+      }
+      
+      let totalSuppliedUSD = 0;
+      let totalBorrowedUSD = 0;
+      const assetPositions = {};
+      
+      // Process each asset position
+      for (const [assetAddress, position] of userPositions) {
+        const supplied = Number(position.supply || 0);
+        const borrowed = Number(position.liabilities || 0);
+        
+        // Get asset price for USD calculation
+        const assetPrice = await this.getAssetPrice(assetAddress);
+        const suppliedUSD = supplied * assetPrice;
+        const borrowedUSD = borrowed * assetPrice;
+        
+        totalSuppliedUSD += suppliedUSD;
+        totalBorrowedUSD += borrowedUSD;
+        
+        assetPositions[assetAddress] = {
+          supplied,
+          borrowed,
+          suppliedUSD,
+          borrowedUSD,
+          assetPrice
+        };
+      }
+      
+      const netPositionUSD = totalSuppliedUSD - totalBorrowedUSD;
+      const healthFactor = totalBorrowedUSD > 0 ? totalSuppliedUSD / totalBorrowedUSD : null;
+      
+      console.log(`✅ Blend position loaded:`);
+      console.log(`   Total Supplied: $${totalSuppliedUSD.toFixed(2)}`);
+      console.log(`   Total Borrowed: $${totalBorrowedUSD.toFixed(2)}`);
+      console.log(`   Net Position: $${netPositionUSD.toFixed(2)}`);
+      console.log(`   Health Factor: ${healthFactor ? healthFactor.toFixed(2) : 'N/A'}`);
+      
+      return {
+        hasPosition: true,
+        totalSupplied: totalSuppliedUSD,
+        totalBorrowed: totalBorrowedUSD,
+        netPosition: netPositionUSD,
+        assets: assetPositions,
+        healthFactor,
+        isBlendData: true,
+        poolAddress,
+        lastUpdated: new Date().toISOString()
+      };
+      
+    } catch (error) {
+      console.warn(`Failed to fetch Blend position: ${error.message}`);
+      return {
+        hasPosition: false,
+        totalSupplied: 0,
+        totalBorrowed: 0,
+        netPosition: 0,
+        assets: {},
+        healthFactor: null,
+        isBlendData: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Get real pool data from Blend protocol
+   */
+  async getPoolData(poolAddress = BLEND_CONTRACTS.test_pool) {
+    try {
+      console.log(`📊 Fetching Blend pool data: ${poolAddress.slice(0, 8)}...`);
+      
+      const pool = new Pool(poolAddress, this.rpcUrl);
+      const poolData = await pool.loadPoolData();
+      
+      if (!poolData) {
+        throw new Error('Pool data not available');
+      }
+      
+      const reserves = poolData.reserves || new Map();
+      let totalTVL = 0;
+      let totalBorrowed = 0;
+      const assetReserves = {};
+      
+      // Process each reserve
+      for (const [assetAddress, reserve] of reserves) {
+        const totalSupply = Number(reserve.totalSupply || 0);
+        const totalLiabilities = Number(reserve.totalLiabilities || 0);
+        
+        const assetPrice = await this.getAssetPrice(assetAddress);
+        const tvlUSD = totalSupply * assetPrice;
+        const borrowedUSD = totalLiabilities * assetPrice;
+        
+        totalTVL += tvlUSD;
+        totalBorrowed += borrowedUSD;
+        
+        assetReserves[assetAddress] = {
+          totalSupply,
+          totalLiabilities,
+          tvlUSD,
+          borrowedUSD,
+          utilizationRate: totalSupply > 0 ? totalLiabilities / totalSupply : 0,
+          assetPrice
+        };
+      }
+      
+      const overallUtilization = totalTVL > 0 ? totalBorrowed / totalTVL : 0;
+      
+      console.log(`✅ Blend pool data loaded:`);
+      console.log(`   Total TVL: $${totalTVL.toFixed(2)}`);
+      console.log(`   Total Borrowed: $${totalBorrowed.toFixed(2)}`);
+      console.log(`   Utilization: ${(overallUtilization * 100).toFixed(2)}%`);
+      console.log(`   Reserves: ${reserves.size} assets`);
+      
+      return {
+        poolAddress,
+        totalTVL,
+        totalBorrowed,
+        utilizationRate: overallUtilization,
+        reserveCount: reserves.size,
+        reserves: assetReserves,
+        isBlendData: true,
+        lastUpdated: new Date().toISOString(),
+        blendTestnetUrl: `${this.blendTestnetUrl}/pool/${poolAddress}`
+      };
+      
+    } catch (error) {
+      console.warn(`Failed to fetch Blend pool data: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get asset price (simplified for testnet)
+   */
+  async getAssetPrice(assetAddress) {
+    // In testnet, use simplified pricing
+    const testnetPrices = {
+      [BLEND_CONTRACTS.xlm_asset]: 0.245,    // XLM at current market price
+      [BLEND_CONTRACTS.usdc_asset]: 1.00,   // USDC at $1.00
+      [BLEND_CONTRACTS.blnd_asset]: 0.05    // BLND at $0.05
+    };
+    
+    return testnetPrices[assetAddress] || 0.245; // Default to XLM price
+  }
+
+  /**
+   * Get comprehensive pool and user data
+   */
+  async getComprehensiveBlendData(userAddress, poolAddress = BLEND_CONTRACTS.test_pool) {
+    try {
+      console.log(`🔄 Fetching comprehensive Blend data for user: ${userAddress.slice(0, 8)}...`);
+      
+      const [poolData, userPosition] = await Promise.all([
+        this.getPoolData(poolAddress),
+        this.getUserPosition(userAddress, poolAddress)
+      ]);
+      
+      // Calculate user's share of the pool
+      const userSharePercentage = poolData.totalTVL > 0 && userPosition.totalSupplied > 0
+        ? (userPosition.totalSupplied / poolData.totalTVL) * 100
+        : 0;
+      
+      console.log(`📈 Comprehensive Blend analysis complete:`);
+      console.log(`   User Pool Share: ${userSharePercentage.toFixed(4)}%`);
+      console.log(`   User Health Factor: ${userPosition.healthFactor || 'N/A'}`);
+      
+      return {
+        poolData,
+        userPosition,
+        userSharePercentage,
+        isBlendData: true,
+        testnetUrl: this.blendTestnetUrl,
+        lastUpdated: new Date().toISOString()
+      };
+      
+    } catch (error) {
+      console.error('Error in comprehensive Blend analysis:', error);
+      throw new Error(`Blend analysis failed: ${error.message}`);
+    }
   }
 
   async getPool(poolAddress) {

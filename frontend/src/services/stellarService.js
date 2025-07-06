@@ -4,6 +4,7 @@ console.log('🌟 Stellar Service v2.1 - Initializing...')
 // Import Stellar SDK
 import * as StellarSDK from '@stellar/stellar-sdk'
 import { blendService } from './blendService'
+import priceService from './priceService'
 // import { realBlendService } from './realBlendService'
 
 // Stellar SDK and utilities
@@ -416,21 +417,53 @@ export const calculateYieldDistribution = (poolData, yieldAmount) => {
 }
 
 /**
- * Get real-time asset prices from Stellar DEX
+ * Get real-time asset prices from CoinGecko API
  */
 export const getAssetPrices = async () => {
   try {
-    // In a real implementation, this would fetch from Stellar DEX or external price feeds
-    // Current testnet values
-    const prices = {
-      'XLM': 0.12, // $0.12 per XLM
-      'USDC': 1.00 // $1.00 per USDC (stablecoin)
-    }
+    console.log('📊 [STELLAR-SERVICE] Fetching real-time asset prices...')
     
-    return prices
+    // Fetch real prices from CoinGecko
+    const prices = await priceService.getPrices(['stellar', 'usd-coin'])
+    
+    return {
+      'XLM': prices.stellar || 0.245,
+      'USDC': prices['usd-coin'] || 1.00
+    }
   } catch (error) {
     console.error('Error fetching asset prices:', error)
-    return { 'XLM': 0.12, 'USDC': 1.00 }
+    // Return fallback prices
+    return { 'XLM': 0.245, 'USDC': 1.00 }
+  }
+}
+
+/**
+ * Get current asset prices using real market data
+ */
+export const getCurrentPrices = async () => {
+  try {
+    console.log('📊 [STELLAR-SERVICE] Fetching current asset prices...')
+    
+    // Fetch real prices from CoinGecko
+    const prices = await priceService.getPrices(['stellar', 'usd-coin', 'ethereum', 'bitcoin'])
+    
+    return {
+      'XLM': prices.stellar || 0.245,
+      'USDC': prices['usd-coin'] || 1.00,
+      'BLND': 0.05, // BLND not on CoinGecko, use fallback
+      'wETH': prices.ethereum || 2100.00,
+      'wBTC': prices.bitcoin || 43000.00
+    }
+  } catch (error) {
+    console.error('Error fetching current prices:', error)
+    // Return fallback prices
+    return {
+      'XLM': 0.245,
+      'USDC': 1.00,
+      'BLND': 0.05,
+      'wETH': 2100.00,
+      'wBTC': 43000.00
+    }
   }
 }
 
@@ -442,7 +475,7 @@ export const getPoolUtilization = async (poolAddress) => {
     const account = await server.loadAccount(poolAddress)
     const totalBalance = account.balances.reduce((sum, balance) => {
       const amount = parseFloat(balance.balance)
-      return sum + (balance.asset_type === 'native' ? amount * 0.12 : amount)
+      return sum + (balance.asset_type === 'native' ? amount * 0.245 : amount)
     }, 0)
     
     // Mock borrowing data (in real implementation, would come from Blend protocol)
@@ -526,8 +559,10 @@ export const getPoolHealthMetrics = async (poolData) => {
   }
 }
 
-// Pool treasury account for centralized management
-const POOL_TREASURY_ACCOUNT = 'GAEYMY5KLHSRZQPC2RV7FSETCB27J2BU7OQ4U6O2LG6ZMXIZPUZCYAHD'
+// Unified treasury account for both deposits and withdrawals (centralized management)
+// This eliminates liquidity issues by using a single treasury account
+const UNIFIED_TREASURY_ACCOUNT = 'GB3TJ4HJZF2SXQDXRTB4GRKQPXUGRBZI3MQS43BTTBHG6MA64VE3BPVG'
+const POOL_TREASURY_ACCOUNT = UNIFIED_TREASURY_ACCOUNT
 
 /**
  * Create a withdrawal transaction
@@ -581,30 +616,6 @@ export const processWithdrawal = async (withdrawalTx) => {
   } catch (error) {
     console.error('Error processing withdrawal:', error)
     throw new Error('Failed to process withdrawal: ' + error.message)
-  }
-}
-
-/**
- * Get current asset prices (testnet simulation)
- */
-export const getCurrentPrices = async () => {
-  try {
-    console.log('Fetching current asset prices...')
-    
-    // Current testnet values
-    const prices = {
-      'XLM': 0.12, // $0.12 per XLM
-      'USDC': 1.00, // $1.00 per USDC
-      'BLND': 0.05, // $0.05 per BLND
-      'wETH': 2100.00, // $2100 per wETH
-      'wBTC': 43000.00 // $43000 per wBTC
-    }
-    
-    console.log('Asset prices loaded')
-    return prices
-  } catch (error) {
-    console.error('Error fetching prices:', error)
-    throw error
   }
 }
 
@@ -678,6 +689,205 @@ export const calculatePoolMetrics = async (assets, contributions) => {
   }
 }
 
-// Withdrawal functions have been moved to consolidate functionality above
+/**
+ * Get real-time user pool position from on-chain data
+ * This fetches actual deposits and positions from Stellar blockchain
+ */
+export const getUserPoolPosition = async (userPublicKey, poolTreasuryAddress) => {
+  try {
+    console.log(`🔍 Fetching on-chain position for user: ${userPublicKey.slice(0, 8)}...`)
+    
+    // Get user's transaction history with the pool treasury
+    const transactions = await server.transactions()
+      .forAccount(userPublicKey)
+      .order('desc')
+      .limit(200)  // Get more transactions to capture all deposits
+      .call()
+    
+    let totalDeposited = 0
+    let totalWithdrawn = 0
+    let depositCount = 0
+    const depositTransactions = []
+    
+    // Analyze transactions to calculate cumulative position
+    for (const tx of transactions.records) {
+      try {
+        // Get transaction operations
+        const operations = await tx.operations()
+        
+        for (const op of operations.records) {
+          if (op.type === 'payment') {
+            // Check if this is a deposit to pool treasury
+            if (op.to === poolTreasuryAddress && op.from === userPublicKey) {
+              const amount = parseFloat(op.amount)
+              totalDeposited += amount
+              depositCount++
+              depositTransactions.push({
+                hash: tx.hash,
+                amount: amount,
+                asset: op.asset_type === 'native' ? 'XLM' : op.asset_code,
+                timestamp: tx.created_at,
+                type: 'deposit'
+              })
+            }
+            // Check if this is a withdrawal from pool treasury
+            else if (op.from === poolTreasuryAddress && op.to === userPublicKey) {
+              const amount = parseFloat(op.amount)
+              totalWithdrawn += amount
+              depositTransactions.push({
+                hash: tx.hash,
+                amount: amount,
+                asset: op.asset_type === 'native' ? 'XLM' : op.asset_code,
+                timestamp: tx.created_at,
+                type: 'withdrawal'
+              })
+            }
+          }
+        }
+      } catch (opError) {
+        console.warn('Error processing transaction operations:', opError.message)
+        continue
+      }
+    }
+    
+    const netPosition = totalDeposited - totalWithdrawn
+    
+    console.log(`✅ On-chain position calculated:`)
+    console.log(`   Total Deposited: ${totalDeposited} XLM`)
+    console.log(`   Total Withdrawn: ${totalWithdrawn} XLM`) 
+    console.log(`   Net Position: ${netPosition} XLM`)
+    console.log(`   Transaction Count: ${depositCount}`)
+    
+    return {
+      totalDeposited,
+      totalWithdrawn,
+      netPosition,
+      depositCount,
+      transactions: depositTransactions,
+      isOnChainData: true,
+      lastUpdated: new Date().toISOString()
+    }
+    
+  } catch (error) {
+    console.error('Error fetching on-chain position:', error)
+    throw new Error(`Failed to fetch on-chain position: ${error.message}`)
+  }
+}
+
+/**
+ * Get pool treasury balance and transaction history
+ */
+export const getPoolTreasuryInfo = async (poolTreasuryAddress) => {
+  try {
+    console.log(`🏦 Fetching pool treasury info: ${poolTreasuryAddress.slice(0, 8)}...`)
+    
+    // Get treasury account info
+    const account = await server.loadAccount(poolTreasuryAddress)
+    const xlmBalance = account.balances.find(b => b.asset_type === 'native')
+    const treasuryBalance = parseFloat(xlmBalance?.balance || 0)
+    
+    // Get recent treasury transactions
+    const transactions = await server.transactions()
+      .forAccount(poolTreasuryAddress)
+      .order('desc')
+      .limit(50)
+      .call()
+    
+    let totalInflow = 0
+    let totalOutflow = 0
+    let participantCount = new Set()
+    
+    // Analyze treasury transactions
+    for (const tx of transactions.records) {
+      try {
+        const operations = await tx.operations()
+        
+        for (const op of operations.records) {
+          if (op.type === 'payment' && op.asset_type === 'native') {
+            if (op.to === poolTreasuryAddress) {
+              // Inflow (deposits)
+              totalInflow += parseFloat(op.amount)
+              participantCount.add(op.from)
+            } else if (op.from === poolTreasuryAddress) {
+              // Outflow (withdrawals)
+              totalOutflow += parseFloat(op.amount)
+            }
+          }
+        }
+      } catch (opError) {
+        continue
+      }
+    }
+    
+    console.log(`✅ Treasury analysis complete:`)
+    console.log(`   Current Balance: ${treasuryBalance} XLM`)
+    console.log(`   Total Inflow: ${totalInflow} XLM`)
+    console.log(`   Total Outflow: ${totalOutflow} XLM`)
+    console.log(`   Unique Participants: ${participantCount.size}`)
+    
+    return {
+      balance: treasuryBalance,
+      totalInflow,
+      totalOutflow,
+      participantCount: participantCount.size,
+      accountLink: `https://stellar.expert/explorer/testnet/account/${poolTreasuryAddress}`,
+      isOnChainData: true,
+      lastUpdated: new Date().toISOString()
+    }
+    
+  } catch (error) {
+    console.error('Error fetching treasury info:', error)
+    throw new Error(`Failed to fetch treasury info: ${error.message}`)
+  }
+}
+
+/**
+ * Comprehensive on-chain pool analysis
+ */
+export const getComprehensivePoolData = async (poolId, userPublicKey, poolTreasuryAddress) => {
+  try {
+    console.log(`🔍 Starting comprehensive on-chain analysis for pool: ${poolId}`)
+    
+    const [userPosition, treasuryInfo] = await Promise.all([
+      getUserPoolPosition(userPublicKey, poolTreasuryAddress),
+      getPoolTreasuryInfo(poolTreasuryAddress)
+    ])
+    
+    // Calculate user's share of the pool
+    const userSharePercentage = treasuryInfo.totalInflow > 0 
+      ? (userPosition.totalDeposited / treasuryInfo.totalInflow) * 100 
+      : 0
+    
+    // Calculate available liquidity
+    const availableLiquidity = treasuryInfo.balance
+    const utilizationRate = treasuryInfo.totalInflow > 0 
+      ? ((treasuryInfo.totalInflow - treasuryInfo.balance) / treasuryInfo.totalInflow) * 100 
+      : 0
+    
+    console.log(`📊 Pool Analysis Summary:`)
+    console.log(`   User Position: ${userPosition.netPosition} XLM (${userSharePercentage.toFixed(2)}% of pool)`)
+    console.log(`   Pool TVL: ${treasuryInfo.totalInflow} XLM`)
+    console.log(`   Available Liquidity: ${availableLiquidity} XLM`)
+    console.log(`   Utilization Rate: ${utilizationRate.toFixed(2)}%`)
+    
+    return {
+      userPosition,
+      treasuryInfo,
+      poolMetrics: {
+        totalValueLocked: treasuryInfo.totalInflow,
+        availableLiquidity,
+        utilizationRate,
+        userSharePercentage,
+        participantCount: treasuryInfo.participantCount
+      },
+      isOnChainData: true,
+      lastUpdated: new Date().toISOString()
+    }
+    
+  } catch (error) {
+    console.error('Error in comprehensive pool analysis:', error)
+    throw new Error(`Pool analysis failed: ${error.message}`)
+  }
+}
 
 // SUPPORTED_ASSETS and NETWORKS are already exported above 

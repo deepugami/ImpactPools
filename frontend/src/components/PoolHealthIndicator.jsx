@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import SargamIcon from './SargamIcon'
 import { getPoolHealthMetrics } from '../services/stellarService'
+import { PriceBadge } from './ui/badge'
 
 /**
  * PoolHealthIndicator Component
@@ -167,15 +168,21 @@ const PoolHealthIndicator = ({ pool, showDetails = false }) => {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-gray-500 text-xs">Total Supplied</p>
-              <p className="font-medium text-gray-900">
-                ${formatNumber(healthMetrics.utilization?.totalDeposited || 0)}
-              </p>
+              <div className="font-medium text-gray-900">
+                <PriceBadge 
+                  xlmAmount={healthMetrics.utilization?.totalDeposited || 0} 
+                  className="bg-gray-100 text-gray-900 text-sm px-2 py-1 hover:bg-gray-200" 
+                />
+              </div>
             </div>
             <div>
               <p className="text-gray-500 text-xs">Available Liquidity</p>
-              <p className="font-medium text-gray-900">
-                ${formatNumber(healthMetrics.utilization?.availableLiquidity || 0)}
-              </p>
+              <div className="font-medium text-gray-900">
+                <PriceBadge 
+                  xlmAmount={healthMetrics.utilization?.availableLiquidity || 0} 
+                  className="bg-gray-100 text-gray-900 text-sm px-2 py-1 hover:bg-gray-200" 
+                />
+              </div>
             </div>
           </div>
 

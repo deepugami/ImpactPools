@@ -9,10 +9,14 @@ import CursorToggle from './components/CursorToggle'
 import HomePage from './pages/HomePage'
 import CreatePoolPage from './pages/CreatePoolPage'
 import PoolDetailsPage from './pages/PoolDetailsPage'
+import NFTGalleryPage from './pages/NFTGalleryPage'
 
 // Import context providers for global state management
 import { WalletProvider } from './contexts/WalletContext'
 import { PoolProvider } from './contexts/PoolContext'
+
+// NEW: Import on-chain balance testing for development
+import './services/onChainBalanceTest.js'
 
 /**
  * Main App component that sets up routing and global providers
@@ -35,7 +39,12 @@ function App() {
       {/* Pool provider manages the state of all ImpactPools */}
       <PoolProvider>
         {/* Router enables navigation between different pages */}
-        <Router>
+        <Router 
+          future={{
+            v7_startTransition: true,
+            v7_relativeSplatPath: true
+          }}
+        >
           <div className="min-h-screen relative">
             {/* Beautiful radial gradient background */}
             <div className="absolute inset-0 -z-10 h-full w-full items-center px-5 py-24 [background:radial-gradient(125%_125%_at_50%_10%,#000_40%,#63e_100%)]"></div>
@@ -63,6 +72,9 @@ function App() {
                 
                 {/* Individual pool details page - shows specific pool info */}
                 <Route path="/pool/:poolId" element={<PoolDetailsPage />} />
+                
+                {/* NFT Gallery page - shows user's Impact Certificate collection */}
+                <Route path="/certificates" element={<NFTGalleryPage />} />
                 
                 {/* Catch-all route for 404 pages */}
                 <Route path="*" element={

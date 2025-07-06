@@ -1,8 +1,10 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import SargamIcon from '../components/SargamIcon'
 import { usePools } from '../contexts/PoolContext'
 import { useWallet } from '../contexts/WalletContext'
+import nftService from '../services/nftService'
+import { PriceBadge } from '../components/ui/badge'
 
 import WithdrawalModal from '../components/WithdrawalDemo'
 
@@ -14,6 +16,25 @@ const HomePage = () => {
   const { pools, isLoading } = usePools()
   const { isConnected } = useWallet()
   const [withdrawalVisible, setWithdrawalVisible] = useState(false)
+  const [nftStats, setNftStats] = useState({ totalCertificates: 0, totalMilestones: 0 })
+
+  // Fetch platform-wide NFT statistics
+  useEffect(() => {
+    const fetchNFTStats = async () => {
+      try {
+        const stats = await nftService.getPlatformStats()
+        setNftStats({
+          totalCertificates: stats.totalCertificatesIssued || 0,
+          totalMilestones: stats.totalMilestonesAchieved || 0
+        })
+      } catch (error) {
+        console.warn('Failed to fetch NFT stats:', error)
+        // Keep default values on error
+      }
+    }
+
+    fetchNFTStats()
+  }, [pools]) // Refetch when pools change
 
   /**
    * Format large numbers for display (e.g., 1,234.56)
@@ -52,19 +73,21 @@ const HomePage = () => {
           </div>
         </div>
 
-        {/* Pool Stats */}
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          <div>
-            <p className="text-sm text-gray-500">Total Deposited</p>
-            <p className="text-lg font-semibold text-gray-900">
-              ${formatNumber(pool.totalDeposited)}
-            </p>
+        {/* Pool Stats with Real Prices */}
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="bg-gray-50 p-3 rounded">
+            <p className="text-sm text-gray-600">Total Deposited</p>
+            <div className="flex items-center space-x-2">
+              <p className="text-lg font-semibold">{pool.totalDeposited?.toFixed(4) || '0.0000'} XLM</p>
+              <PriceBadge xlmAmount={pool.totalDeposited || 0} />
+            </div>
           </div>
-          <div>
-            <p className="text-sm text-gray-500">Total Donated</p>
-            <p className="text-lg font-semibold text-accent-600">
-              ${formatNumber(pool.totalDonated)}
-            </p>
+          <div className="bg-gray-50 p-3 rounded">
+            <p className="text-sm text-gray-600">Total Donated</p>
+            <div className="flex items-center space-x-2">
+              <p className="text-lg font-semibold">{pool.totalDonated?.toFixed(4) || '0.0000'} XLM</p>
+              <PriceBadge xlmAmount={pool.totalDonated || 0} />
+            </div>
           </div>
         </div>
 
@@ -194,37 +217,73 @@ const HomePage = () => {
             Platform Impact
           </h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
             <div className="text-center">
               <div className="bg-purple-500/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                 <SargamIcon name="trending-up" size={32} color="#d8b4fe" />
               </div>
-              <p className="text-3xl font-bold text-white mb-2">
-                ${formatNumber(totalDeposited)}
-              </p>
+              <div className="text-3xl font-bold text-white mb-2">
+                <PriceBadge 
+                  xlmAmount={totalDeposited} 
+                  className="bg-white/20 text-white text-2xl px-3 py-1 hover:bg-white/30" 
+                />
+              </div>
               <p className="text-gray-300">Total Value Locked</p>
             </div>
             
             <div className="text-center">
-              <div className="bg-purple-500/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                <SargamIcon name="heart" size={32} color="#d8b4fe" />
+              <div className="bg-pink-500/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <SargamIcon name="heart" size={32} color="#ec4899" />
               </div>
-              <p className="text-3xl font-bold text-purple-300 mb-2">
-                ${formatNumber(totalDonated)}
-              </p>
+              <div className="text-3xl font-bold text-pink-400 mb-2">
+                <PriceBadge 
+                  xlmAmount={totalDonated} 
+                  className="bg-pink-500/20 text-pink-400 text-2xl px-3 py-1 hover:bg-pink-500/30" 
+                />
+              </div>
               <p className="text-gray-300">Donated to Charities</p>
             </div>
             
             <div className="text-center">
-              <div className="bg-purple-500/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                <SargamIcon name="users" size={32} color="#d8b4fe" />
+              <div className="bg-blue-500/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <SargamIcon name="users" size={32} color="#60a5fa" />
               </div>
               <p className="text-3xl font-bold text-white mb-2">
                 {totalParticipants}
               </p>
               <p className="text-gray-300">Active Contributors</p>
             </div>
+
+            <div className="text-center">
+              <div className="bg-yellow-500/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <SargamIcon name="award" size={32} color="#fbbf24" />
+              </div>
+              <p className="text-3xl font-bold text-yellow-400 mb-2">
+                {nftStats.totalCertificates}
+              </p>
+              <p className="text-gray-300">Impact Certificates</p>
+            </div>
           </div>
+
+          {/* Additional NFT insights */}
+          {nftStats.totalCertificates > 0 && (
+            <div className="mt-8 pt-8 border-t border-white/20">
+              <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-8">
+                <div className="flex items-center space-x-2 text-gray-300">
+                  <SargamIcon name="trophy" size={16} color="#fbbf24" />
+                  <span className="text-sm">
+                    <span className="font-semibold text-yellow-400">{nftStats.totalMilestones}</span> milestones achieved
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2 text-gray-300">
+                  <SargamIcon name="star" size={16} color="#a855f7" />
+                  <span className="text-sm">
+                    Proof of charitable impact on Stellar blockchain
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )
@@ -234,8 +293,6 @@ const HomePage = () => {
     <div className="min-h-screen">
       {/* Hero Section */}
       <HeroSection />
-
-
 
       {/* Platform Stats */}
       {pools.length > 0 && <StatsSection />}

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react'
+import { useWallet } from '../contexts/WalletContext'
+import { usePool } from '../contexts/PoolContext'
 
 /**
  * EnhancedCursor Component
@@ -121,6 +123,203 @@ const EnhancedCursor = () => {
         }}
       />
     </>
+  )
+}
+
+/**
+ * OnChainBalanceDisplay Component
+ * 
+ * Displays user's cumulative pool balance fetched from on-chain data
+ * with refresh functionality and Blend protocol integration
+ */
+export const OnChainBalanceDisplay = ({ poolId, asset = 'XLM', className = '' }) => {
+  const { publicKey } = useWallet()
+  const { fetchOnChainPoolData, calculateUserPoolBalance } = usePool()
+  
+  const [balance, setBalance] = useState(0)
+  const [onChainData, setOnChainData] = useState(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState(null)
+  const [error, setError] = useState(null)
+  
+  // Format number for display
+  const formatNumber = (num) => {
+    return new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 6
+    }).format(num)
+  }
+  
+  // Fetch on-chain balance data
+  const fetchBalance = async (forceRefresh = false) => {
+    if (!publicKey || !poolId) return
+    
+    setIsLoading(true)
+    setError(null)
+    
+    try {
+      console.log(`🔄 Fetching ${forceRefresh ? 'fresh' : 'cached'} balance for pool ${poolId}`)
+      
+      // Get comprehensive on-chain data
+      const data = await fetchOnChainPoolData(poolId, forceRefresh)
+      
+      if (data && data.userPosition.isOnChainData) {
+        // Use real on-chain cumulative balance
+        setBalance(data.userPosition.netPosition)
+        setOnChainData(data)
+        setLastUpdated(new Date())
+        console.log(`✅ On-chain balance loaded: ${data.userPosition.netPosition} ${asset}`)
+      } else {
+        // Fallback to local calculation
+        const localBalance = await calculateUserPoolBalance(poolId, asset)
+        setBalance(localBalance)
+        setLastUpdated(new Date())
+        console.log(`📊 Local balance calculated: ${localBalance} ${asset}`)
+      }
+      
+    } catch (err) {
+      console.error('Error fetching balance:', err)
+      setError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+  
+  // Load balance on component mount and when dependencies change
+  useEffect(() => {
+    fetchBalance()
+  }, [publicKey, poolId, asset])
+  
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!isLoading) {
+        fetchBalance()
+      }
+    }, 30000)
+    
+    return () => clearInterval(interval)
+  }, [isLoading])
+  
+  if (!publicKey) {
+    return (
+      <div className={`text-gray-400 ${className}`}>
+        Connect wallet to view balance
+      </div>
+    )
+  }
+  
+  return (
+    <div className={`space-y-2 ${className}`}>
+      {/* Main Balance Display */}
+      <div className="flex items-center justify-between">
+        <div className="space-y-1">
+          <div className="font-medium text-gray-200">Your Pool Balance:</div>
+          <div className="text-2xl font-bold text-white">
+            {isLoading ? (
+              <div className="flex items-center space-x-2">
+                <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-lg">Loading...</span>
+              </div>
+            ) : error ? (
+              <div className="text-red-400 text-lg">Error loading balance</div>
+            ) : (
+              <span>
+                {formatNumber(balance)} {asset}
+              </span>
+            )}
+          </div>
+          
+          {/* Data Source Indicator */}
+          {onChainData && (
+            <div className="flex items-center space-x-2 text-sm">
+              {onChainData.userPosition.isOnChainData ? (
+                <>
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span className="text-green-400">On-chain data</span>
+                </>
+              ) : (
+                <>
+                  <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                  <span className="text-yellow-400">Local calculation</span>
+                </>
+              )}
+              
+              {/* Blend Protocol Indicator */}
+              {onChainData.blendData && onChainData.blendData.isBlendData && (
+                <>
+                  <span className="text-gray-400">•</span>
+                  <span className="text-blue-400">Blend verified</span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        
+        {/* Refresh Button */}
+        <button
+          onClick={() => fetchBalance(true)}
+          disabled={isLoading}
+          className="flex items-center space-x-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded-lg transition-colors"
+          title="Refresh balance from blockchain"
+        >
+          <svg 
+            className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} 
+            fill="none" 
+            stroke="currentColor" 
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <span className="text-sm">Refresh</span>
+        </button>
+      </div>
+      
+      {/* Balance Details */}
+      {onChainData && !isLoading && (
+        <div className="bg-gray-800 rounded-lg p-3 space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-400">Total Deposited:</span>
+            <span className="text-white">{formatNumber(onChainData.userPosition.totalDeposited)} {asset}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">Total Withdrawn:</span>
+            <span className="text-white">{formatNumber(onChainData.userPosition.totalWithdrawn)} {asset}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">Pool Share:</span>
+            <span className="text-white">{onChainData.poolMetrics.userSharePercentage.toFixed(4)}%</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">Transaction Count:</span>
+            <span className="text-white">{onChainData.userPosition.depositCount}</span>
+          </div>
+          
+          {lastUpdated && (
+            <div className="flex justify-between text-xs text-gray-500 pt-2 border-t border-gray-700">
+              <span>Last Updated:</span>
+              <span>{lastUpdated.toLocaleTimeString()}</span>
+            </div>
+          )}
+        </div>
+      )}
+      
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3">
+          <div className="text-red-400 text-sm">
+            <div className="font-medium">Balance fetch failed:</div>
+            <div className="mt-1">{error}</div>
+            <button 
+              onClick={() => fetchBalance(true)}
+              className="mt-2 text-blue-400 hover:text-blue-300 underline"
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 

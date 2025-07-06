@@ -2,6 +2,7 @@ import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import SargamIcon from './SargamIcon'
 import { useWallet } from '../contexts/WalletContext'
+import { XLMPriceIndicator } from './ui/badge'
 
 /**
  * Navbar component - Displays navigation and wallet connection
@@ -88,6 +89,24 @@ const Navbar = () => {
               <SargamIcon name="plus" size={16} color="currentColor" />
               <span>Create Pool</span>
             </Link>
+
+            {/* NFT Certificates Link - Only show when connected */}
+            {isConnected && (
+              <Link
+                to="/certificates"
+                className={`flex items-center space-x-2 px-3 py-2 rounded-lg transition-colors ${
+                  isActivePath('/certificates') 
+                    ? 'bg-yellow-500/20 text-yellow-300' 
+                    : 'text-gray-300 hover:text-yellow-300 hover:bg-yellow-500/10'
+                }`}
+              >
+                <SargamIcon name="award" size={16} color="currentColor" />
+                <span>Certificates</span>
+              </Link>
+            )}
+
+            {/* Real-time XLM Price */}
+            <XLMPriceIndicator className="ml-4" />
           </div>
 
           {/* Wallet Connection Section */}
@@ -136,7 +155,7 @@ const Navbar = () => {
 
         {/* Mobile Navigation - appears below main nav on small screens */}
         <div className="md:hidden border-t border-purple-500/20">
-          <div className="flex justify-around py-2">
+          <div className={`flex ${isConnected ? 'justify-around' : 'justify-center space-x-8'} py-2`}>
             <Link
               to="/"
               className={`flex flex-col items-center space-y-1 px-3 py-2 rounded-lg transition-colors ${
@@ -160,6 +179,21 @@ const Navbar = () => {
               <SargamIcon name="plus" size={20} color="currentColor" />
               <span className="text-xs">Create</span>
             </Link>
+
+            {/* NFT Certificates Link - Mobile - Only show when connected */}
+            {isConnected && (
+              <Link
+                to="/certificates"
+                className={`flex flex-col items-center space-y-1 px-3 py-2 rounded-lg transition-colors ${
+                  isActivePath('/certificates') 
+                    ? 'text-yellow-300' 
+                    : 'text-gray-300 hover:text-yellow-300'
+                }`}
+              >
+                <SargamIcon name="award" size={20} color="currentColor" />
+                <span className="text-xs">Certificates</span>
+              </Link>
+            )}
           </div>
         </div>
       </div>

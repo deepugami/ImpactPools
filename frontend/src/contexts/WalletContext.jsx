@@ -40,8 +40,15 @@ export const WalletProvider = ({ children }) => {
 
   useEffect(() => {
     // Initialize the Stellar Wallets Kit
-    const initWalletsKit = () => {
+    const initWalletsKit = async () => {
       try {
+        // First check if Freighter is available
+        const freighterAvailable = await checkFreighterAvailability()
+        
+        if (!freighterAvailable) {
+          console.warn('⚠️ Freighter not detected. Please ensure Freighter wallet extension is installed and enabled.')
+        }
+        
         const kit = new StellarWalletsKit({
           network: WalletNetwork.TESTNET, // Using testnet for development
           selectedWalletId: null,
@@ -55,11 +62,12 @@ export const WalletProvider = ({ children }) => {
         checkExistingConnection(kit)
       } catch (error) {
         console.error('❌ Failed to initialize Stellar Wallets Kit:', error)
-        toast.error('Failed to initialize wallet system')
+        toast.error('Failed to initialize wallet system. Please refresh the page.')
       }
     }
 
-    initWalletsKit()
+    // Initialize with a small delay to ensure DOM is ready
+    setTimeout(initWalletsKit, 100)
   }, [])
 
   /**
@@ -261,6 +269,43 @@ export const WalletProvider = ({ children }) => {
     return walletInfo
   }
 
+  /**
+   * Enhanced wallet availability check with retries for Freighter detection
+   */
+  const checkFreighterAvailability = async (retries = 3) => {
+    console.log('🔍 Checking Freighter availability...')
+    
+    for (let i = 0; i < retries; i++) {
+      try {
+        // Check multiple possible Freighter injection points
+        const freighterChecks = {
+          windowFreighter: typeof window.freighter !== 'undefined',
+          freighterApi: typeof window.freighterApi !== 'undefined',
+          stellarFreighter: typeof window.stellar?.freighter !== 'undefined',
+          freighterObject: window.freighter !== null && window.freighter !== undefined
+        }
+        
+        console.log(`🔍 Freighter check attempt ${i + 1}:`, freighterChecks)
+        
+        // If any check passes, Freighter is available
+        if (Object.values(freighterChecks).some(Boolean)) {
+          console.log('✅ Freighter detected!')
+          return true
+        }
+        
+        // Wait a bit before retrying (Freighter might still be loading)
+        if (i < retries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      } catch (error) {
+        console.warn(`⚠️ Freighter check attempt ${i + 1} failed:`, error)
+      }
+    }
+    
+    console.warn('❌ Freighter not detected after retries')
+    return false
+  }
+
   // The value object that will be provided to all child components
   const value = {
     // State values
@@ -272,6 +317,7 @@ export const WalletProvider = ({ children }) => {
     // Utility functions
     getShortPublicKey,
     checkWalletAvailability,
+    checkFreighterAvailability,
     
     // Action functions
     connectWallet,

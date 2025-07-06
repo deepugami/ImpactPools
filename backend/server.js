@@ -3,20 +3,194 @@ import cors from 'cors'
 import helmet from 'helmet'
 import morgan from 'morgan'
 import dotenv from 'dotenv'
+import fs from 'fs'
+import path from 'path'
+// NEW: Import NFT routes
+import nftRoutes from './routes/nft.js'
+// NEW: Import withdrawal routes
+import withdrawalRoutes from './routes/withdrawal.js'
 
 // Load environment variables
 dotenv.config()
 
 // Create Express application
 const app = express()
-const PORT = process.env.PORT || 3001
+const PORT = process.env.PORT || 4000
 
 /**
- * In-memory storage for pools
- * Starts empty - pools are created through real transactions only
- * In production, this would be replaced with a proper database
+ * Data persistence setup
+ * Use JSON file for simple persistence to prevent data loss on restart
  */
-let pools = []
+const DATA_FILE = path.join(process.cwd(), 'pools-data.json')
+
+/**
+ * Load pools from JSON file
+ */
+const loadPoolsFromFile = () => {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const data = fs.readFileSync(DATA_FILE, 'utf8')
+      const parsed = JSON.parse(data)
+      return parsed
+    }
+  } catch (error) {
+    console.warn('⚠️ Failed to load pools from file:', error.message)
+  }
+  return []
+}
+
+/**
+ * Save pools to JSON file
+ */
+const savePoolsToFile = (poolsData) => {
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(poolsData, null, 2))
+  } catch (error) {
+    console.error('❌ Failed to save pools to file:', error.message)
+  }
+}
+
+/**
+ * In-memory storage for pools with file persistence
+ * Loads existing data on startup, saves on changes
+ */
+let pools = loadPoolsFromFile()
+
+/**
+ * Yield Generation Service
+ * Calculates and applies yield to all active pools every 10 minutes
+ */
+class YieldService {
+  constructor() {
+    this.isRunning = false;
+    this.interval = null;
+    this.YIELD_UPDATE_INTERVAL = 30 * 1000; // 30 seconds for real-time yield generation
+  }
+
+  start() {
+    if (this.isRunning) {
+      return;
+    }
+
+    this.isRunning = true;
+
+    // Run immediately on start
+    this.generateYieldForAllPools();
+
+    // Set up 30-second interval for real-time yield generation
+    this.interval = setInterval(() => {
+      this.generateYieldForAllPools();
+    }, this.YIELD_UPDATE_INTERVAL);
+  }
+
+  stop() {
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = null;
+    }
+    this.isRunning = false;
+  }
+
+  generateYieldForAllPools() {
+    try {
+      if (!pools || pools.length === 0) {
+        return;
+      }
+
+      let totalNewYield = 0;
+      let totalNewDonations = 0;
+      let updatedPoolsCount = 0;
+
+      pools.forEach((pool, index) => {
+        const yieldData = this.calculatePoolYield(pool);
+        
+        if (yieldData.newYield > 0) {
+          updatedPoolsCount++;
+          totalNewYield += yieldData.newYield;
+          totalNewDonations += yieldData.donationAmount;
+          
+          // Update the pool in the array
+          pools[index] = yieldData.updatedPool;
+        }
+      });
+
+      // Save updated pools to file
+      if (updatedPoolsCount > 0) {
+        savePoolsToFile(pools);
+      }
+
+    } catch (error) {
+      console.error('❌ [YIELD] Error generating yield:', error);
+    }
+  }
+
+  calculatePoolYield(pool) {
+    try {
+      // Only generate yield if pool has deposits
+      if (!pool.totalDeposited || pool.totalDeposited <= 0) {
+        return { updatedPool: pool, newYield: 0, donationAmount: 0 };
+      }
+
+      // Calculate yield based on APY and time elapsed (30 seconds for real-time generation)
+      const annualAPY = (pool.currentAPY || 4.2) / 100; // Convert percentage to decimal
+      const secondsElapsed = 30; // 30-second intervals for real-time yield
+      const secondsPerYear = 365 * 24 * 60 * 60; // Seconds in a year
+      
+      // Calculate yield for this 30-second period
+      const periodMultiplier = secondsElapsed / secondsPerYear;
+      const yieldForPeriod = pool.totalDeposited * annualAPY * periodMultiplier;
+
+      // Calculate donations based on donation percentage
+      const donationPercentage = pool.donationPercentage || 0;
+      const donationAmount = yieldForPeriod * (donationPercentage / 100);
+
+      // Update pool with accumulated yield and donations
+      const updatedPool = {
+        ...pool,
+        totalYieldGenerated: (pool.totalYieldGenerated || 0) + yieldForPeriod,
+        totalDonated: (pool.totalDonated || 0) + donationAmount,
+        lastYieldUpdate: new Date().toISOString(),
+        
+        // Add yield distribution transaction record
+        transactions: [
+          ...(pool.transactions || []),
+          {
+            id: `yield_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            type: 'yield_distribution',
+            amount: yieldForPeriod,
+            donationAmount: donationAmount,
+            asset: 'XLM',
+            timestamp: new Date().toISOString(),
+            periodAPY: annualAPY * 100,
+            isAutoGenerated: true
+          }
+        ]
+      };
+
+      return {
+        updatedPool,
+        newYield: yieldForPeriod,
+        donationAmount: donationAmount
+      };
+
+    } catch (error) {
+      console.error(`❌ [YIELD] Error calculating yield for pool ${pool.id}:`, error);
+      return { updatedPool: pool, newYield: 0, donationAmount: 0 };
+    }
+  }
+
+  getStatus() {
+    return {
+      isRunning: this.isRunning,
+      intervalSeconds: this.YIELD_UPDATE_INTERVAL / 1000,
+      intervalMinutes: this.YIELD_UPDATE_INTERVAL / (60 * 1000),
+      nextUpdate: this.isRunning ? new Date(Date.now() + this.YIELD_UPDATE_INTERVAL).toISOString() : null
+    };
+  }
+}
+
+// Initialize yield service
+const yieldService = new YieldService();
 
 // Middleware setup
 app.use(helmet()) // Security headers
@@ -158,7 +332,8 @@ app.post('/api/pools', (req, res) => {
     // Add the new pool to our storage
     pools.push(poolData)
     
-    console.log(`New pool created: ${poolData.name} by ${poolData.creator}`)
+    // Save to persistent storage
+    savePoolsToFile(pools)
     
     res.status(201).json(poolData)
   } catch (error) {
@@ -202,7 +377,8 @@ app.put('/api/pools/:id', (req, res) => {
       id: id // Ensure ID doesn't change
     }
     
-    console.log(`Pool updated: ${id}`)
+    // Save to persistent storage
+    savePoolsToFile(pools)
     
     res.status(200).json(pools[poolIndex])
   } catch (error) {
@@ -239,7 +415,8 @@ app.delete('/api/pools/:id', (req, res) => {
     // Remove the pool
     const deletedPool = pools.splice(poolIndex, 1)[0]
     
-    console.log(`Pool deleted: ${deletedPool.name}`)
+    // Save to persistent storage
+    savePoolsToFile(pools)
     
     res.status(200).json({
       success: true,
@@ -284,6 +461,12 @@ app.get('/api/stats', (req, res) => {
   }
 })
 
+// NFT Impact Certificates Routes
+// NEW: Add NFT routes alongside existing functionality
+app.use('/api/nft', nftRoutes);
+// NEW: Add withdrawal routes alongside existing functionality
+app.use('/api/withdrawal', withdrawalRoutes);
+
 /**
  * Error handling middleware
  * Catches any unhandled errors and returns a proper response
@@ -308,13 +491,32 @@ app.use('*', (req, res) => {
 })
 
 /**
+ * GET /api/yield/status
+ * Get yield service status
+ */
+app.get('/api/yield/status', (req, res) => {
+  try {
+    const status = yieldService.getStatus()
+    res.status(200).json(status)
+  } catch (error) {
+    console.error('Error getting yield service status:', error)
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Failed to get yield service status'
+    })
+  }
+})
+
+/**
  * Start the server
  */
 app.listen(PORT, () => {
   console.log(`🚀 ImpactPools API server running on port ${PORT}`)
-  console.log(`📊 Currently managing ${pools.length} pools`)
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`)
-  console.log(`💡 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`)
+  
+  // Start yield generation service
+  setTimeout(() => {
+    yieldService.start()
+  }, 2000) // Start after 2 seconds to ensure server is fully ready
 })
 
 // Graceful shutdown handling
