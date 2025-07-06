@@ -38,11 +38,6 @@ export const calculateRealAPY = (poolData) => {
 }
 ```
 
-### 4. Zero Demo Data
-- **No Mock Pools**: Backend starts completely empty
-- **Real Pool Creation**: Pools are only created through actual Stellar transactions
-- **Authentic User Experience**: Every interaction represents real blockchain activity
-
 ## Technical Architecture
 
 ### Frontend (React + Vite)
