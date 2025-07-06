@@ -1,6 +1,6 @@
 # ImpactPools - DeFi for Good
 
-Hey! I built this DeFi application on the Stellar network that combines yield farming with charitable giving. The idea came to me when I realized most DeFi users don't think about social impact - so I created a platform where users earn competitive yields while automatically donating to charity.
+This is a DeFi application on the Stellar network that combines yield farming with charitable giving. The idea came to me when I realized most DeFi users don't think about social impact - so I created a platform where users earn competitive yields while automatically donating to charity.
 
 ## What I Built
 
@@ -23,7 +23,7 @@ I noticed something cool - when people can show off their charitable impact, the
 
 This creates a positive feedback loop - people want the exclusive NFTs, so they donate more, which helps more charities!
 
-## My Tech Stack
+## Tech Stack
 
 I chose these technologies after researching what would work best for a DeFi + social impact platform:
 
@@ -67,7 +67,7 @@ I ran into problems with the original Freighter-only setup, especially on Micros
 
 ### Debug Features I Added
 
-I built a debugging system that helps during development:
+Built a debugging system that helps during development:
 - Wallet initialization status checker
 - Available wallet modules display
 - Connection status monitor  
@@ -116,7 +116,7 @@ npm install
 npm run dev
 ```
 
-## How I Organized the Code
+## File Organization
 
 ```
 stellar_impactpools/
@@ -175,7 +175,7 @@ stellar_impactpools/
 6. **Flex Your NFTs**: Visit the NFT Gallery to showcase your charitable impact certificates
 7. **Share & Inspire**: The social aspect encourages others to donate more when they see your achievements
 
-## Cool Features I Implemented
+## Features Implemented
 
 ### For the Hackathon
 - **Real Stellar Testnet**: All transactions happen on actual blockchain - no simulation
@@ -241,7 +241,3 @@ Some ideas I'm considering:
 - Social sharing integrations
 - Mobile app version
 - Mainnet deployment
-
-## License
-
-MIT License - I'm keeping this open source so others can build on the idea of gamified charitable giving! 
