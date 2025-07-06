@@ -34,7 +34,7 @@ const PRICE_APIS = {
 
 const PRICE_CACHE_DURATION = 3 * 60 * 1000 // 3 minutes cache
 const FALLBACK_PRICES = {
-  'stellar': 0.115, // XLM fallback price (updated)
+  'stellar': 0.25, // XLM fallback price (updated to current market value)
   'usd-coin': 1.00, // USDC fallback price
   'ethereum': 2300.00, // ETH fallback price
   'bitcoin': 44000.00 // BTC fallback price
